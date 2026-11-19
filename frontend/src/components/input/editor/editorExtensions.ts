@@ -3,7 +3,7 @@ import {nextTick, toValue, type MaybeRefOrGetter, type Ref} from 'vue'
 import StarterKit from '@tiptap/starter-kit'
 import {createNodeFromContent, Extension, mergeAttributes, type Editor, type Extensions} from '@tiptap/core'
 import {Plugin, PluginKey} from '@tiptap/pm/state'
-import {Fragment} from '@tiptap/pm/model'
+import {Fragment, type Node as ProseMirrorNode} from '@tiptap/pm/model'
 import {marked} from 'marked'
 
 import Link from '@tiptap/extension-link'
@@ -17,7 +17,7 @@ import Underline from '@tiptap/extension-underline'
 import {Placeholder} from '@tiptap/extensions'
 import HardBreak from '@tiptap/extension-hard-break'
 
-import {TaskList} from '@tiptap/extension-list'
+import {TaskList, ListItem} from '@tiptap/extension-list'
 import {TaskItemWithId} from './taskItemWithId'
 import {ListKeymapWithJoin} from './listKeymapWithJoin'
 import {DeleteSelectionBeforeEnter} from './deleteSelectionBeforeEnter'
@@ -285,9 +285,33 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 		},
 	})
 
+	function listItemText(node: ProseMirrorNode, parent: ProseMirrorNode | null, index: number, depth = 0): string {
+		const marker = parent?.type.name === 'orderedList'
+			? `${(Number(parent.attrs.start) || 1) + index}. `
+			: '- '
+		const indent = '  '.repeat(depth)
+		const lines: string[] = []
+		node.forEach((child, _offset, childIndex) => {
+			if (child.type.name === 'bulletList' || child.type.name === 'orderedList') {
+				child.forEach((item, _o, i) => lines.push(listItemText(item, child, i, depth + 1)))
+				return
+			}
+			lines.push(childIndex === 0 ? indent + marker + child.textContent : indent + '  ' + child.textContent)
+		})
+		return lines.join('\n')
+	}
+
+	// Copied lists keep their markers in the plain text flavour of the clipboard.
+	const ListItemWithText = ListItem.extend({
+		renderText({node, parent, index}) {
+			return listItemText(node, parent, index)
+		},
+	})
+
 	return [
 		// Starterkit:
 		StarterKit.configure({
+			listItem: false,
 			codeBlock: false,
 			hardBreak: false,
 			blockquote: false,
@@ -297,6 +321,7 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 			link: false,
 			underline: false,
 		}),
+		ListItemWithText,
 		ListKeymapWithJoin,
 		DeleteSelectionBeforeEnter,
 		BlockquoteWithCommentId,
